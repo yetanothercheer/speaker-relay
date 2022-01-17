@@ -1,0 +1,174 @@
+<html>
+
+<head>
+    <style>
+        body {
+            font-size: 24px;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        button {
+            font-size: 32px;
+            padding: 20px 40px;
+        }
+
+        main {
+            height: 50vh;
+            display: flex;
+            flex-direction: column;
+            /* align-items: center; */
+            /* justify-content: center; */
+        }
+
+        #log {
+            flex-grow: 1;
+        }
+    </style>
+
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
+        integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
+        crossorigin="anonymous"></script>
+</head>
+
+<main x-data>
+    <button id="btn">Play</button>
+    <div>
+        <p>Estimate Diff
+            <span x-text="$store.statistic.estimate_time_diff"></span>
+        </p>
+        <p>Delay
+            <span x-text="$store.statistic.delay"></span>
+        </p>
+        <p>Remains
+            <span x-text="$store.statistic.remain"></span>
+        </p>
+    </div>
+    <div x-show="false" id="_log">
+    </div>
+</main>
+
+
+<script type="text/javascript" charset="utf-8">
+
+    document.addEventListener('alpine:init', () => {
+        Alpine.store('darkMode', {
+            on: false,
+
+            toggle() {
+                this.on = !this.on
+            }
+        });
+
+        Alpine.store('statistic', {
+            estimate_time_diff: 0,
+            delay: 0,
+            remain: 0,
+
+            setDiff(diff) {
+                this.estimate_time_diff = diff;
+            },
+            setDelay(delay) {
+                this.delay = delay;
+            },
+            setRemain(remain) {
+                this.remain = remain;
+            },
+        });
+
+        main();
+    })
+
+    function log(message) {
+        let date = new Date();
+        let date_string = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}:${date.getMilliseconds()}`;
+        _log.innerHTML = `${date_string} ${message}<br/>` + _log.innerHTML.slice(0, 2000)
+    }
+
+    function main() {
+        log("Main");
+
+        let context;
+        let soundSource;
+
+        let socket = io();
+
+        let time_a = Date.now();
+        // NOTE: diff = BrowserTime - RemoteTime
+        let diff = 0;
+        socket.on('time', function (message) {
+            let time_b = Date.now();
+            let time_remote = message.time;
+            diff = (time_a + time_b) / 2000 - time_remote;
+            log(`Diff ${diff}s`);
+            Alpine.store("statistic").setDiff(diff);
+        })
+        socket.emit("time", null);
+
+        socket.on('listen!', function (message) {
+            createSoundSource([new Float32Array(message.data)], message.time, message.index);
+        });
+
+        let allow_play = false;
+
+        let play = false;
+
+        let next_time = 0;
+
+        btn.onclick = () => {
+            if (play) {
+                log("Stop")
+                btn.innerText = "Play"
+                context = null;
+                next_time = 0;
+            } else {
+                btn.innerText = "Stop"
+                log("Start")
+                context = new AudioContext({
+                    numberOfChannels: 2,
+                    sampleRate: 44100
+                });
+            }
+            play = !play;
+        }
+
+        // Web Audio streaming with fetch API
+        // https://gist.github.com/revolunet/e620e2c532b7144c62768a36b8b96da2
+        function createSoundSource(audioData, time, index) {
+            if (!context) return;
+
+            for (var i = 0; i < audioData.length; i++) {
+                let channel_len = audioData[i].length / 2;
+                let duration = channel_len / 44100;
+                let c1 = audioData[i].slice(0, channel_len);
+                let c2 = audioData[i].slice(channel_len);
+
+                audioCtx = context;
+                var myArrayBuffer = audioCtx.createBuffer(2, channel_len, audioCtx.sampleRate);
+                myArrayBuffer.copyToChannel(c1, 0);
+                myArrayBuffer.copyToChannel(c2, 1);
+
+                var source = audioCtx.createBufferSource();
+                source.buffer = myArrayBuffer;
+                source.connect(audioCtx.destination);
+
+                if (next_time == 0) {
+                    // 0.5 controls delay.
+                    next_time = context.currentTime + 0.5;
+                }
+
+                source.start(next_time);
+                next_time += duration;
+
+                let delay = next_time - context.currentTime + Date.now() / 1000.0 - (time + diff);
+                let remain = next_time - context.currentTime;
+                log(`Delay ${delay}s`);
+                log(`Remains ${remain}s`);
+                Alpine.store("statistic").setDelay(delay);
+                Alpine.store("statistic").setRemain(remain);
+            }
+        }
+    }
+</script>
+
+</html>
