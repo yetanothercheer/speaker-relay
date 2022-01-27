@@ -10,6 +10,15 @@ import os, sys
 audio_queue = Queue()
 should_stop = False
 
+# On Windows, this weird thing would keep audio stram stable.
+def phantom_speaker():
+    print("! Phantom Speaker Start")
+    fake = np.zeros(480000)
+    default_speaker = sc.default_speaker()
+    while not should_stop:
+        default_speaker.play(fake, samplerate=48000)
+        eventlet.sleep(0)
+
 # Recording Task
 def recorder():
     print("! Recorder Start")
@@ -23,8 +32,6 @@ def recorder():
 
     numframes = 512
     with microphone.recorder(samplerate=44100, blocksize=numframes*4) as mic:
-        # count = 0
-        # buf = None
         while not should_stop:
             time_stamp = time()
             data = mic.record(numframes=numframes).astype(np.float32)
@@ -84,6 +91,7 @@ def handler(signal, frame):
 signal.signal(signal.SIGINT, handler)
 
 if __name__ == '__main__':
+    socketio.start_background_task(target=phantom_speaker)
     socketio.start_background_task(target=server_push)
     socketio.start_background_task(target=recorder)
-    socketio.run(app, host="127.0.0.1", port=5000)
+    socketio.run(app, host="0.0.0.0", port=5000)

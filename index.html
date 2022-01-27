@@ -12,6 +12,7 @@
         }
 
         body {
+            touch-action: manipulation;
             font-size: 1.5em;
             font-variant-numeric: tabular-nums;
             font-family: 'Fira Sans', sans-serif;
@@ -19,13 +20,9 @@
             user-select: none;
         }
 
-        /* * {
-            box-sizing: border-box;
-        } */
-
         .title {
             display: inline-block;
-            width: 20vw;
+            width: 30vw;
         }
 
         .data {
@@ -38,6 +35,7 @@
         }
 
         #btn {
+            font-size: 1.7em;
             width: 8em;
             /* padding: 10px 40px; */
             align-self: center;
@@ -73,55 +71,40 @@
         Play</button>
 
     <div class="data">
-        <p>
-            <span class="title">Estimate Diff</span>
-            <span class="title" x-text="$store.statistic.estimate_time_diff"></span>
+        <p><span class="title">Required Delay</span>
+            <span class="title" x-text="$store.setting.play_delay"></span>
+            <span class="btn-group shadow-none" role="group" aria-label="Basic example">
+                <button type="button" class="btn" @click="$store.setting.up()">➕</button>
+                <button type="button" class="btn" @click="$store.setting.down()">➖</button>
+            </span>
         </p>
-        <p><span class="title">Delay</span>
+        <p><span class="title">Real Delay</span>
             <span class="title" x-text="$store.statistic.delay"></span>
         </p>
-        <p><span class="title">Remains</span>
+        <p><span class="title">Remaining Duration</span>
             <span class="title" x-text="$store.statistic.remain"></span>
+        </p>
+        <p>
+            <span class="title">Clock Difference</span>
+            <span class="title" x-text="$store.statistic.estimate_time_diff"></span>
+        </p>
+        <p style="color: green; font-variant-numeric: oldstyle-nums;">
+            Set Audio sync to <span style="font-size: 1.5em;" class="title"
+                x-text="-$store.statistic.delay.toPrecision(2)"></span>
         </p>
     </div>
     <div>
         <details>
             <summary>Log</summary>
-            <div x-show="false" id="_log">
+            <div x-show="true" id="_log">
         </details>
     </div>
     </div>
 </main>
 
 <script type="text/javascript" charset="utf-8">
+    PLAY_DELAY = "PLAY_DELAY";
 
-    document.addEventListener('alpine:init', () => {
-        Alpine.store('darkMode', {
-            on: false,
-
-            toggle() {
-                this.on = !this.on
-            }
-        });
-
-        Alpine.store('statistic', {
-            estimate_time_diff: 0,
-            delay: 0,
-            remain: 0,
-
-            setDiff(diff) {
-                this.estimate_time_diff = diff;
-            },
-            setDelay(delay) {
-                this.delay = delay;
-            },
-            setRemain(remain) {
-                this.remain = remain;
-            },
-        });
-
-        main();
-    })
 
     function log(message) {
         const _reserve = (s, digits) => {
@@ -134,6 +117,8 @@
     }
 
     function main() {
+
+
         log("Main");
 
         let context;
@@ -141,20 +126,38 @@
 
         let socket = io();
 
-        let time_a = Date.now();
+        let time_a;
         // NOTE: diff = BrowserTime - RemoteTime
         let diff = 0;
+
+        let diffs = [];
+
         socket.on('time', function (message) {
             let time_b = Date.now();
             let time_remote = message.time;
-            diff = (time_a + time_b) / 2000 - time_remote;
-            log(`Diff ${diff}s`);
-            Alpine.store("statistic").setDiff(diff);
+            let diff_sample = (time_a + time_b) / 2000 - time_remote;
+            diffs.push(diff_sample);
+
+            if (diffs.length < 50) {
+                time_a = Date.now()
+                socket.emit("time", null);
+            } else {
+                // reduce error
+                diffs.sort();
+                diffs = diffs.slice(10, 40);
+                diff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+                Alpine.store("statistic").setDiff(diff);
+            }
         })
+        time_a = Date.now();
         socket.emit("time", null);
 
+        let last_time = 0;
         socket.on('listen!', function (message) {
-            createSoundSource([new Float32Array(message.data)], message.time, message.index);
+            let delta = Date.now() - last_time;
+            // log(`Delta ${delta}ms`);
+            createSoundSource([new Float32Array(message.data)], message.time + diff, message.index);
+            last_time = Date.now();
         });
 
         let allow_play = false;
@@ -182,6 +185,10 @@
             play = !play;
         }
 
+        Alpine.store("setting").setOnChange(() => {
+            next_time = 0;
+        });
+
         // Web Audio streaming with fetch API
         // https://gist.github.com/revolunet/e620e2c532b7144c62768a36b8b96da2
         function createSoundSource(audioData, time, index) {
@@ -203,22 +210,75 @@
                 source.connect(audioCtx.destination);
 
                 if (next_time == 0) {
-                    // 0.5 controls delay.
-                    next_time = context.currentTime + 0.5;
+                    next_time = context.currentTime + Alpine.store('setting').play_delay;
                 }
 
                 source.start(next_time);
-                next_time += duration;
 
-                let delay = next_time - context.currentTime + Date.now() / 1000.0 - (time + diff);
+                let delay = next_time - context.currentTime + Date.now() / 1000.0 - (time);
+
+                next_time += duration;
                 let remain = next_time - context.currentTime;
-                log(`Delay ${delay}s`);
-                log(`Remains ${remain}s`);
-                Alpine.store("statistic").setDelay(delay);
-                Alpine.store("statistic").setRemain(remain);
+                // log(`Delay ${delay}s`);
+                // log(`Remains ${remain}s`);
+                if (diff != 0) {
+                    Alpine.store("statistic").setDelay(delay);
+                    Alpine.store("statistic").setRemain(remain);
+                }
+
             }
         }
     }
+
+
+    document.addEventListener('alpine:init', () => {
+        Alpine.store('darkMode', {
+            on: false,
+
+            toggle() {
+                this.on = !this.on
+            }
+        });
+
+        Alpine.store('setting', {
+            play_delay: 0.5,
+            onchange: () => { },
+
+            setOnChange(f) {
+                this.onchange = f;
+            },
+
+            up() {
+                this.play_delay += 0.1;
+                this.play_delay = Math.round(this.play_delay * 10) / 10;
+                this.onchange();
+            },
+
+            down() {
+                this.play_delay -= 0.1;
+                this.play_delay = Math.round(this.play_delay * 10) / 10;
+                this.onchange();
+            },
+        });
+
+        Alpine.store('statistic', {
+            estimate_time_diff: 'Synchronize Clock...',
+            delay: 0,
+            remain: 0,
+
+            setDiff(diff) {
+                this.estimate_time_diff = diff;
+            },
+            setDelay(delay) {
+                this.delay = delay;
+            },
+            setRemain(remain) {
+                this.remain = remain;
+            },
+        });
+
+        main();
+    })
 </script>
 
 </html>
