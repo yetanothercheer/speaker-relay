@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "speaker-relay"
+version = "0.1.0"
+description = "Streaming loopback audio through websocket to another device."
+authors = ["yetanothercheer <yetanothercheer@protonmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = ["speaker", "relay", "audio"]
+classifiers = [
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.scripts]
+speaker-relay = "speaker_relay:main"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+aiohttp = "^3.8.1"
+numpy = "^1.22.0"
+SoundCard = "^0.4.1"
+python-socketio = "^5.5.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
