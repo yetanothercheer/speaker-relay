@@ -12,3 +12,4 @@ AudioContext is used. Tested with Chrome.
 pip install speaker-relay
 speaker-relay
 ```
+On another device, navigate to http://{IP_ADDRESS_IN_LAN}:8080/app.html then.
